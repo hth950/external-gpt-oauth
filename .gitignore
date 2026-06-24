@@ -1,0 +1,12 @@
+.env
+.codex-auth/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.sqlite3-*
+data/
+logs/
+.venv/
+
