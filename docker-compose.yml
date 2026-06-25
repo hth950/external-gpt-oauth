@@ -5,7 +5,7 @@ services:
     env_file:
       - .env
     ports:
-      - "127.0.0.1:31835:8000"
+      - "192.168.0.16:31835:8000"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -17,4 +17,3 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-
