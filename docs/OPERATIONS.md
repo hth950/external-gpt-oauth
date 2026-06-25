@@ -34,13 +34,19 @@ logs/                   # reserved for logs
 grep '^DOGOK_PROXY_API_KEY=' /workspace/thhwang/external-gpt-oauth/.env
 ```
 
+예제 명령을 실행하는 쉘에서는 실제 key를 환경변수로 지정합니다.
+
+```bash
+export DOGOK_PROXY_API_KEY="$(grep '^DOGOK_PROXY_API_KEY=' /workspace/thhwang/external-gpt-oauth/.env | cut -d= -f2-)"
+```
+
 ## Health Checks
 
 dogok에서:
 
 ```bash
 curl http://192.168.0.16:31835/health \
-  -H "Authorization: Bearer classday-api" | python3 -m json.tool
+  -H "Authorization: Bearer $DOGOK_PROXY_API_KEY" | python3 -m json.tool
 ```
 
 정상 기준:
@@ -69,7 +75,32 @@ LISTEN ... 192.168.0.16:31835 ...
 
 ## Swagger UI
 
-Swagger UI:
+Swagger/OpenAPI는 외부 노출을 고려해 기본 비활성화합니다.
+
+임시 활성화:
+
+```bash
+cd /workspace/thhwang/external-gpt-oauth
+python3 - <<'PY'
+from pathlib import Path
+path = Path(".env")
+lines = path.read_text(encoding="utf-8").splitlines()
+out = []
+found = False
+for line in lines:
+    if line.startswith("DOGOK_PROXY_ENABLE_DOCS="):
+        out.append("DOGOK_PROXY_ENABLE_DOCS=true")
+        found = True
+    else:
+        out.append(line)
+if not found:
+    out.append("DOGOK_PROXY_ENABLE_DOCS=true")
+path.write_text("\n".join(out) + "\n", encoding="utf-8")
+PY
+sudo -n docker compose restart
+```
+
+Swagger URL:
 
 ```text
 http://192.168.0.16:31835/docs
@@ -78,7 +109,7 @@ http://192.168.0.16:31835/docs
 사용 방법:
 
 1. 우측 상단 `Authorize`를 누릅니다.
-2. token 값으로 `classday-api`를 입력합니다.
+2. token 값으로 실제 `DOGOK_PROXY_API_KEY` 값을 입력합니다.
 3. `/v1/responses`를 열고 `Try it out`을 누릅니다.
 4. `system_usr` 예시를 선택하거나 아래 형태로 body를 넣습니다.
 
@@ -92,13 +123,36 @@ http://192.168.0.16:31835/docs
 
 요청 생성 응답의 `id`를 복사한 뒤 `/v1/responses/{response_id}`에서 poll합니다.
 
+확인이 끝나면 다시 비활성화합니다.
+
+```bash
+cd /workspace/thhwang/external-gpt-oauth
+python3 - <<'PY'
+from pathlib import Path
+path = Path(".env")
+lines = path.read_text(encoding="utf-8").splitlines()
+out = []
+found = False
+for line in lines:
+    if line.startswith("DOGOK_PROXY_ENABLE_DOCS="):
+        out.append("DOGOK_PROXY_ENABLE_DOCS=false")
+        found = True
+    else:
+        out.append(line)
+if not found:
+    out.append("DOGOK_PROXY_ENABLE_DOCS=false")
+path.write_text("\n".join(out) + "\n", encoding="utf-8")
+PY
+sudo -n docker compose restart
+```
+
 ## End-to-End Test
 
 로컬 또는 같은 LAN의 클라이언트에서:
 
 ```bash
 CREATE=$(curl -sS http://192.168.0.16:31835/v1/responses \
-  -H "Authorization: Bearer classday-api" \
+  -H "Authorization: Bearer $DOGOK_PROXY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model":"gpt-5.4-mini",
@@ -110,7 +164,7 @@ RID=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<< "$CREA
 
 for i in $(seq 1 30); do
   OUT=$(curl -sS "http://192.168.0.16:31835/v1/responses/${RID}" \
-    -H "Authorization: Bearer classday-api")
+    -H "Authorization: Bearer $DOGOK_PROXY_API_KEY")
   STATUS=$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("status"))' <<< "$OUT")
   echo "poll_${i}=${STATUS}"
   if [ "$STATUS" != queued ] && [ "$STATUS" != in_progress ]; then
@@ -137,7 +191,7 @@ done
 
 ```bash
 curl http://192.168.0.16:31835/health \
-  -H "Authorization: Bearer classday-api" | python3 -m json.tool
+  -H "Authorization: Bearer $DOGOK_PROXY_API_KEY" | python3 -m json.tool
 ```
 
 응답의 `settings.queue_concurrency` 값이 실제 worker 동시성입니다.
@@ -198,7 +252,7 @@ sudo -n docker compose restart
 
 ```bash
 curl http://192.168.0.16:31835/health \
-  -H "Authorization: Bearer classday-api"
+  -H "Authorization: Bearer $DOGOK_PROXY_API_KEY"
 ```
 
 ### `oauth_not_configured`

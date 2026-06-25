@@ -123,3 +123,13 @@ async def test_auth_required(test_app):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/health")
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_docs_disabled_by_default(test_app):
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        docs = await client.get("/docs")
+        openapi = await client.get("/openapi.json")
+    assert docs.status_code == 404
+    assert openapi.status_code == 404

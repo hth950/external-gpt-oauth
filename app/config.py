@@ -36,6 +36,7 @@ def _bool_env(name: str, default: bool) -> bool:
 class Settings:
     api_key: str
     require_api_key: bool
+    enable_docs: bool
     db_path: Path
     queue_concurrency: int
     max_queue_size: int
@@ -59,6 +60,7 @@ def get_settings() -> Settings:
     return Settings(
         api_key=os.getenv("DOGOK_PROXY_API_KEY", ""),
         require_api_key=_bool_env("DOGOK_PROXY_REQUIRE_API_KEY", True),
+        enable_docs=_bool_env("DOGOK_PROXY_ENABLE_DOCS", False),
         db_path=Path(os.getenv("GPT_QUEUE_DB_PATH", "/app/data/jobs.sqlite3")),
         queue_concurrency=max(1, _int_env("GPT_QUEUE_CONCURRENCY", 2)),
         max_queue_size=max(1, _int_env("GPT_MAX_QUEUE_SIZE", 1000)),
