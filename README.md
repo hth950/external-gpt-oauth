@@ -20,6 +20,14 @@ curl http://192.168.0.16:31835/health \
   -H "Authorization: Bearer classday-api"
 ```
 
+Swagger UI:
+
+```text
+http://192.168.0.16:31835/docs
+```
+
+Swagger에서 우측 상단 `Authorize` 버튼을 눌러 `classday-api`를 입력하면 됩니다. `/v1/responses`의 request body 예시에 `system`/`usr` payload가 포함되어 있습니다.
+
 ## Quick Usage
 
 ### Async Queue Behavior
