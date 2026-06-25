@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.auth_refresh import AuthRefreshLoop
-from app.config import Settings, get_settings
+from app.config import REASONING_EFFORT_VALUES, Settings, get_settings
 from app.db import JobRecord, JobStore, QueueFullError
 from app.oauth_proxy import OAuthProxyManager
 from app.queue_worker import QueueWorkerPool
@@ -120,6 +120,7 @@ async def health() -> dict[str, Any]:
             "queue_concurrency": settings.queue_concurrency,
             "max_queue_size": settings.max_queue_size,
             "job_timeout_seconds": settings.job_timeout_seconds,
+            "default_reasoning_effort": settings.default_reasoning_effort,
         },
     }
 
@@ -154,6 +155,7 @@ async def create_response(
                     "model": "gpt-5.4-mini",
                     "system": "You are a concise assistant.",
                     "usr": "Reply with exactly: hello",
+                    "reasoning_effort": "low",
                 },
             },
             "responses_input": {
@@ -164,6 +166,7 @@ async def create_response(
                         {"role": "system", "content": "You are concise."},
                         {"role": "user", "content": "Reply with exactly: hello"},
                     ],
+                    "reasoning": {"effort": "low"},
                 },
             },
         },
@@ -231,6 +234,7 @@ async def create_chat_completion(
                 "value": {
                     "model": "gpt-5.4-mini",
                     "messages": [{"role": "user", "content": "hello"}],
+                    "reasoning_effort": "low",
                 },
             }
         },
@@ -314,7 +318,38 @@ async def _require_oauth_ready() -> None:
 
 
 def _model_payload(body: ResponseCreateRequest | ChatCompletionCreateRequest) -> dict[str, Any]:
-    return body.model_dump(mode="json", exclude_none=True)
+    payload = body.model_dump(mode="json", exclude_none=True)
+    reasoning_effort = payload.get("reasoning_effort")
+    if reasoning_effort is None:
+        reasoning_effort = _reasoning_effort_from_reasoning(payload.get("reasoning"))
+    if reasoning_effort is None:
+        reasoning_effort = settings.default_reasoning_effort
+    if reasoning_effort is not None:
+        payload["reasoning_effort"] = _validate_reasoning_effort(
+            reasoning_effort, "reasoning_effort"
+        )
+    return payload
+
+
+def _reasoning_effort_from_reasoning(reasoning: Any) -> str | None:
+    if reasoning is None:
+        return None
+    if not isinstance(reasoning, dict):
+        raise _bad_request("reasoning must be an object")
+    effort = reasoning.get("effort")
+    if effort is None:
+        return None
+    return _validate_reasoning_effort(effort, "reasoning.effort")
+
+
+def _validate_reasoning_effort(value: Any, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise _bad_request(f"{field_name} must be a string")
+    effort = value.strip().lower()
+    if effort not in REASONING_EFFORT_VALUES:
+        allowed = ", ".join(sorted(REASONING_EFFORT_VALUES))
+        raise _bad_request(f"{field_name} must be one of: {allowed}")
+    return effort
 
 
 def _get_job_or_404(job_id: str) -> JobRecord:

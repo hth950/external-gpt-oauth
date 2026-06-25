@@ -117,7 +117,8 @@ http://192.168.0.16:31835/docs
 {
   "model": "gpt-5.4-mini",
   "system": "You are a concise assistant.",
-  "usr": "Reply with exactly: hello"
+  "usr": "Reply with exactly: hello",
+  "reasoning_effort": "low"
 }
 ```
 
@@ -157,7 +158,8 @@ CREATE=$(curl -sS http://192.168.0.16:31835/v1/responses \
   -d '{
     "model":"gpt-5.4-mini",
     "system":"You are a concise assistant.",
-    "usr":"Reply with exactly: lan-ok"
+    "usr":"Reply with exactly: lan-ok",
+    "reasoning_effort":"low"
   }')
 
 RID=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<< "$CREATE")
@@ -183,9 +185,10 @@ done
 - worker가 `queued` job을 `in_progress`로 claim하고 내부 GPT 호출을 수행합니다.
 - 완료 결과는 `completed` 상태로 저장됩니다.
 - 서버 재시작 중이던 `in_progress` job은 startup 시 재시도 가능 상태로 복구됩니다.
-- `GPT_QUEUE_CONCURRENCY` 기본값은 `2`입니다.
+- `GPT_QUEUE_CONCURRENCY` 기본값은 `2`입니다. 현재 dogok 운영값은 `5`입니다.
 - `GPT_JOB_TIMEOUT_SECONDS` 기본값은 `900`입니다.
 - `GPT_JOB_MAX_ATTEMPTS` 기본값은 `3`입니다.
+- `GPT_DEFAULT_REASONING_EFFORT` 기본값은 `low`입니다.
 
 현재 동시성 확인:
 
@@ -199,7 +202,8 @@ curl http://192.168.0.16:31835/health \
 ```json
 {
   "settings": {
-    "queue_concurrency": 2
+    "queue_concurrency": 5,
+    "default_reasoning_effort": "low"
   }
 }
 ```
@@ -218,10 +222,39 @@ GPT_QUEUE_CONCURRENCY=4
 적용:
 
 ```bash
-sudo -n docker compose restart
+sudo -n docker compose up -d --force-recreate
 ```
 
-주의: ChatGPT/Codex OAuth 계정 하나로 너무 많은 동시 요청을 보내면 upstream 제한, 지연, 실패가 늘 수 있습니다. 현재 운영 기본값 `2`는 안정성을 우선한 값입니다.
+주의: ChatGPT/Codex OAuth 계정 하나로 너무 많은 동시 요청을 보내면 upstream 제한, 지연, 실패가 늘 수 있습니다. dogok은 현재 `5`로 운영하며, 실패가 늘면 `3` 정도로 낮춰 봅니다.
+
+reasoning effort 변경:
+
+```env
+GPT_DEFAULT_REASONING_EFFORT=low
+```
+
+요청별 override:
+
+```json
+{
+  "model": "gpt-5.5",
+  "system": "You are concise.",
+  "usr": "Reply with exactly: ok",
+  "reasoning_effort": "medium"
+}
+```
+
+Responses 스타일도 지원합니다.
+
+```json
+{
+  "model": "gpt-5.5",
+  "input": "Reply with exactly: ok",
+  "reasoning": {"effort": "medium"}
+}
+```
+
+지원 가능한 값은 모델별로 다를 수 있지만, 서버 schema는 `none`, `minimal`, `low`, `medium`, `high`, `xhigh`를 허용합니다.
 
 ## OAuth Refresh
 
