@@ -37,8 +37,10 @@ async def test_app(tmp_path, monkeypatch):
     main.oauth_proxy.start_watchdog = lambda: None
     main.oauth_proxy.stop_watchdog = fake_stop
 
+    captured_payloads = []
+
     async def fake_create_chat_completion(payload):
-        assert payload["messages"] == [{"role": "user", "content": "hello"}]
+        captured_payloads.append(payload)
         return {
             "id": "chatcmpl-upstream-id",
             "object": "chat.completion",
@@ -49,6 +51,7 @@ async def test_app(tmp_path, monkeypatch):
         }
 
     main.upstream.create_chat_completion = fake_create_chat_completion
+    main.app.state.captured_payloads = captured_payloads
 
     async with main.app.router.lifespan_context(main.app):
         yield main.app
@@ -79,6 +82,39 @@ async def test_response_enqueue_and_poll(test_app):
         assert final["status"] == "completed"
         assert final["output_text"] == "ok"
         assert final["metadata"]["upstream_chat_completion_id"] == "chatcmpl-upstream-id"
+        assert test_app.state.captured_payloads[-1]["messages"] == [
+            {"role": "user", "content": "hello"}
+        ]
+
+
+@pytest.mark.asyncio
+async def test_response_supports_system_usr_payload(test_app):
+    transport = ASGITransport(app=test_app)
+    headers = {"Authorization": "Bearer test-key"}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post(
+            "/v1/responses",
+            json={
+                "model": "gpt-5.4",
+                "system": "You are concise.",
+                "usr": "Say hello.",
+            },
+            headers=headers,
+        )
+        assert created.status_code == 202
+        response_id = created.json()["id"]
+
+        for _ in range(20):
+            polled = await client.get(f"/v1/responses/{response_id}", headers=headers)
+            assert polled.status_code == 200
+            if polled.json()["status"] == "completed":
+                break
+            await asyncio.sleep(0.05)
+
+    assert test_app.state.captured_payloads[-1]["messages"] == [
+        {"role": "system", "content": "You are concise."},
+        {"role": "user", "content": "Say hello."},
+    ]
 
 
 @pytest.mark.asyncio

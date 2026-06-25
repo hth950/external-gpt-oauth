@@ -75,7 +75,11 @@ LISTEN ... 192.168.0.16:31835 ...
 CREATE=$(curl -sS http://192.168.0.16:31835/v1/responses \
   -H "Authorization: Bearer classday-api" \
   -H "Content-Type: application/json" \
-  -d '{"model":"gpt-5.4-mini","input":"Reply with exactly: lan-ok"}')
+  -d '{
+    "model":"gpt-5.4-mini",
+    "system":"You are a concise assistant.",
+    "usr":"Reply with exactly: lan-ok"
+  }')
 
 RID=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<< "$CREATE")
 
@@ -166,4 +170,3 @@ sudo -n docker compose restart
    ```
 
 3. 같은 공유기/LAN인지 확인합니다. 현재 compose는 `192.168.0.16:31835`에만 바인딩합니다.
-
