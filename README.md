@@ -22,6 +22,27 @@ curl http://192.168.0.16:31835/health \
 
 ## Quick Usage
 
+### Async Queue Behavior
+
+요청 API는 비동기 queue 방식입니다. 사용자가 동시에 여러 요청을 보내도 서버는 각 요청을 SQLite queue에 저장하고 즉시 `id`를 반환합니다. 실제 GPT 호출은 background worker가 제한된 동시성으로 처리합니다.
+
+현재 운영 기본값:
+
+```text
+GPT_QUEUE_CONCURRENCY=2
+```
+
+예를 들어 요청이 10개 동시에 들어오면:
+
+```text
+10개 요청 저장
+2개 in_progress 처리
+8개 queued 대기
+처리 중이던 작업이 끝나면 다음 queued job 처리
+```
+
+따라서 사용자는 생성 응답의 `id`를 저장하고, `/v1/responses/{id}`를 poll해서 `completed`가 될 때 결과를 읽으면 됩니다.
+
 ### Responses API
 
 가장 단순한 형태는 `system`과 `usr`를 나누는 방식입니다.

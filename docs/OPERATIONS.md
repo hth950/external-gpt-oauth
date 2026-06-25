@@ -108,6 +108,42 @@ done
 - `GPT_JOB_TIMEOUT_SECONDS` 기본값은 `900`입니다.
 - `GPT_JOB_MAX_ATTEMPTS` 기본값은 `3`입니다.
 
+현재 동시성 확인:
+
+```bash
+curl http://192.168.0.16:31835/health \
+  -H "Authorization: Bearer classday-api" | python3 -m json.tool
+```
+
+응답의 `settings.queue_concurrency` 값이 실제 worker 동시성입니다.
+
+```json
+{
+  "settings": {
+    "queue_concurrency": 2
+  }
+}
+```
+
+동시성 변경:
+
+```bash
+cd /workspace/thhwang/external-gpt-oauth
+vi .env
+```
+
+```env
+GPT_QUEUE_CONCURRENCY=4
+```
+
+적용:
+
+```bash
+sudo -n docker compose restart
+```
+
+주의: ChatGPT/Codex OAuth 계정 하나로 너무 많은 동시 요청을 보내면 upstream 제한, 지연, 실패가 늘 수 있습니다. 현재 운영 기본값 `2`는 안정성을 우선한 값입니다.
+
 ## OAuth Refresh
 
 `app/auth_refresh.py`가 `.codex-auth/auth.json`의 access token expiry를 확인합니다.
