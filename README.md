@@ -24,6 +24,26 @@ curl http://192.168.0.16:31835/health \
 
 ### Responses API
 
+가장 단순한 형태는 `system`과 `usr`를 나누는 방식입니다.
+
+```bash
+CREATE=$(curl -sS http://192.168.0.16:31835/v1/responses \
+  -H "Authorization: Bearer classday-api" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-5.4-mini",
+    "system": "You are a concise assistant.",
+    "usr": "Reply with exactly: hello"
+  }')
+```
+
+지원하는 alias:
+
+```text
+system prompt: system, system_prompt
+user prompt: usr, user, user_prompt, prompt
+```
+
 요청 생성:
 
 ```bash
@@ -46,25 +66,63 @@ curl -sS "http://192.168.0.16:31835/v1/responses/${RID}" \
 
 상태값은 `queued`, `in_progress`, `completed`, `failed`, `cancelled` 중 하나입니다. 완료 시 `output_text`와 Responses 형태의 `output`이 반환됩니다.
 
+OpenAI Responses 스타일의 role list도 사용할 수 있습니다.
+
+```bash
+curl -sS http://192.168.0.16:31835/v1/responses \
+  -H "Authorization: Bearer classday-api" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-5.4-mini",
+    "input": [
+      {"role": "system", "content": "You are a concise assistant."},
+      {"role": "user", "content": "Reply with exactly: hello"}
+    ]
+  }'
+```
+
 ### Python Client
 
 ```python
-from openai import OpenAI
+import time
+import requests
 
-client = OpenAI(
-    base_url="http://192.168.0.16:31835/v1",
-    api_key="classday-api",
+BASE_URL = "http://192.168.0.16:31835"
+HEADERS = {
+    "Authorization": "Bearer classday-api",
+    "Content-Type": "application/json",
+}
+
+created = requests.post(
+    f"{BASE_URL}/v1/responses",
+    headers=HEADERS,
+    json={
+        "model": "gpt-5.4-mini",
+        "system": "You are a concise assistant.",
+        "usr": "Reply with exactly: hello",
+    },
+    timeout=10,
 )
+created.raise_for_status()
+response_id = created.json()["id"]
 
-created = client.responses.create(
-    model="gpt-5.4-mini",
-    input="Reply with exactly: hello",
-)
-
-print(created.id)
+while True:
+    polled = requests.get(
+        f"{BASE_URL}/v1/responses/{response_id}",
+        headers={"Authorization": "Bearer classday-api"},
+        timeout=10,
+    )
+    polled.raise_for_status()
+    data = polled.json()
+    if data["status"] == "completed":
+        print(data["output_text"])
+        break
+    if data["status"] in ("failed", "cancelled"):
+        raise RuntimeError(data)
+    time.sleep(2)
 ```
 
-현재 서버는 비동기 queue 방식이므로, Python SDK가 자동으로 완료 결과를 기다리는 일반 OpenAI Responses 동작과는 다릅니다. `created.id`로 `GET /v1/responses/{id}`를 직접 poll해야 합니다.
+현재 서버는 비동기 queue 방식이므로 요청 생성 응답은 최종 GPT 답변이 아닙니다. `id`로 `GET /v1/responses/{id}`를 직접 poll해야 합니다.
 
 ### Chat Completions
 
@@ -141,4 +199,3 @@ docs/
 ## More Docs
 
 - [Operations](docs/OPERATIONS.md)
-

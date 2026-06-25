@@ -116,7 +116,7 @@ class QueueWorkerPool:
 def _responses_to_chat_payload(payload: dict[str, Any]) -> dict[str, Any]:
     chat_payload: dict[str, Any] = {
         "model": payload.get("model"),
-        "messages": _responses_input_to_messages(payload.get("input")),
+        "messages": _responses_payload_to_messages(payload),
     }
     for key in (
         "frequency_penalty",
@@ -132,6 +132,20 @@ def _responses_to_chat_payload(payload: dict[str, Any]) -> dict[str, Any]:
         if key in payload:
             chat_payload[key] = payload[key]
     return chat_payload
+
+
+def _responses_payload_to_messages(payload: dict[str, Any]) -> list[dict[str, str]]:
+    if "input" in payload:
+        return _responses_input_to_messages(payload.get("input"))
+
+    system_prompt = _first_string(payload, ("system", "system_prompt"))
+    user_prompt = _first_string(payload, ("usr", "user", "user_prompt", "prompt"))
+    messages: list[dict[str, str]] = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    if user_prompt:
+        messages.append({"role": "user", "content": user_prompt})
+    return messages or [{"role": "user", "content": ""}]
 
 
 def _responses_input_to_messages(input_value: Any) -> list[dict[str, str]]:
@@ -155,6 +169,14 @@ def _responses_input_to_messages(input_value: Any) -> list[dict[str, str]]:
             role = "user"
         messages.append({"role": role, "content": _content_to_text(item.get("content"))})
     return messages or [{"role": "user", "content": ""}]
+
+
+def _first_string(payload: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
 
 
 def _content_to_text(content: Any) -> str:
