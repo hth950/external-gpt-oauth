@@ -10,23 +10,29 @@ dogok 서버에서 ChatGPT/Codex OAuth 계정으로 GPT 요청을 처리하는 F
 
 ```text
 Base URL: http://192.168.0.16:31835/v1
-API Key: classday-api
+API Key: dogok .env의 DOGOK_PROXY_API_KEY
+```
+
+클라이언트 쉘에서 예제를 실행할 때는 먼저 실제 key를 환경변수로 지정합니다.
+
+```bash
+export DOGOK_PROXY_API_KEY="실제 .env 값"
 ```
 
 헬스체크:
 
 ```bash
 curl http://192.168.0.16:31835/health \
-  -H "Authorization: Bearer classday-api"
+  -H "Authorization: Bearer $DOGOK_PROXY_API_KEY"
 ```
 
-Swagger UI:
+Swagger/OpenAPI는 외부 공개를 고려해 기본 비활성화되어 있습니다. 필요한 경우 dogok `.env`에서 `DOGOK_PROXY_ENABLE_DOCS=true`를 임시로 설정하고 재시작한 뒤 아래 URL을 사용합니다.
 
 ```text
 http://192.168.0.16:31835/docs
 ```
 
-Swagger에서 우측 상단 `Authorize` 버튼을 눌러 `classday-api`를 입력하면 됩니다. `/v1/responses`의 request body 예시에 `system`/`usr` payload가 포함되어 있습니다.
+Swagger에서 우측 상단 `Authorize` 버튼을 눌러 실제 API key를 입력하면 됩니다. `/v1/responses`의 request body 예시에 `system`/`usr` payload가 포함되어 있습니다. 확인이 끝나면 `DOGOK_PROXY_ENABLE_DOCS=false`로 되돌립니다.
 
 ## Quick Usage
 
@@ -57,7 +63,7 @@ GPT_QUEUE_CONCURRENCY=2
 
 ```bash
 CREATE=$(curl -sS http://192.168.0.16:31835/v1/responses \
-  -H "Authorization: Bearer classday-api" \
+  -H "Authorization: Bearer $DOGOK_PROXY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-5.4-mini",
@@ -77,7 +83,7 @@ user prompt: usr, user, user_prompt, prompt
 
 ```bash
 CREATE=$(curl -sS http://192.168.0.16:31835/v1/responses \
-  -H "Authorization: Bearer classday-api" \
+  -H "Authorization: Bearer $DOGOK_PROXY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-5.4-mini","input":"Reply with exactly: hello"}')
 
@@ -90,7 +96,7 @@ echo "$CREATE"
 RID=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<< "$CREATE")
 
 curl -sS "http://192.168.0.16:31835/v1/responses/${RID}" \
-  -H "Authorization: Bearer classday-api" | python3 -m json.tool
+  -H "Authorization: Bearer $DOGOK_PROXY_API_KEY" | python3 -m json.tool
 ```
 
 상태값은 `queued`, `in_progress`, `completed`, `failed`, `cancelled` 중 하나입니다. 완료 시 `output_text`와 Responses 형태의 `output`이 반환됩니다.
@@ -99,7 +105,7 @@ OpenAI Responses 스타일의 role list도 사용할 수 있습니다.
 
 ```bash
 curl -sS http://192.168.0.16:31835/v1/responses \
-  -H "Authorization: Bearer classday-api" \
+  -H "Authorization: Bearer $DOGOK_PROXY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-5.4-mini",
@@ -113,12 +119,14 @@ curl -sS http://192.168.0.16:31835/v1/responses \
 ### Python Client
 
 ```python
+import os
 import time
 import requests
 
 BASE_URL = "http://192.168.0.16:31835"
+API_KEY = os.environ["DOGOK_PROXY_API_KEY"]
 HEADERS = {
-    "Authorization": "Bearer classday-api",
+    "Authorization": f"Bearer {API_KEY}",
     "Content-Type": "application/json",
 }
 
@@ -138,7 +146,7 @@ response_id = created.json()["id"]
 while True:
     polled = requests.get(
         f"{BASE_URL}/v1/responses/{response_id}",
-        headers={"Authorization": "Bearer classday-api"},
+        headers={"Authorization": f"Bearer {API_KEY}"},
         timeout=10,
     )
     polled.raise_for_status()
@@ -159,14 +167,14 @@ while True:
 
 ```bash
 CREATE=$(curl -sS http://192.168.0.16:31835/v1/chat/completions \
-  -H "Authorization: Bearer classday-api" \
+  -H "Authorization: Bearer $DOGOK_PROXY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-5.4-mini","messages":[{"role":"user","content":"hello"}]}')
 
 JOB_ID=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<< "$CREATE")
 
 curl -sS "http://192.168.0.16:31835/v1/jobs/${JOB_ID}" \
-  -H "Authorization: Bearer classday-api" | python3 -m json.tool
+  -H "Authorization: Bearer $DOGOK_PROXY_API_KEY" | python3 -m json.tool
 ```
 
 ## Deployment
@@ -186,7 +194,7 @@ ports:
   - "192.168.0.16:31835:8000"
 ```
 
-같은 공유기/LAN 내부 기기에서 `http://192.168.0.16:31835`로 접근할 수 있습니다. 외부 공개 서비스로 쓰는 구성은 아닙니다.
+같은 공유기/LAN 내부 기기에서 `http://192.168.0.16:31835`로 접근할 수 있습니다. 인터넷에 공개할 때는 router port forwarding만으로는 TLS가 없으므로, 가능하면 HTTPS reverse proxy나 터널 뒤에 두고 API key를 긴 랜덤 값으로 유지합니다.
 
 ## OAuth Login
 

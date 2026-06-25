@@ -64,9 +64,12 @@ app = FastAPI(
     title="dogok external GPT OAuth proxy",
     description=(
         "LAN-only queued GPT proxy backed by ChatGPT/Codex OAuth. "
-        "Use `Authorization: Bearer classday-api` in the Swagger Authorize dialog."
+        "Use `Authorization: Bearer <DOGOK_PROXY_API_KEY>` for API requests."
     ),
     version="0.2.0",
+    docs_url="/docs" if settings.enable_docs else None,
+    redoc_url="/redoc" if settings.enable_docs else None,
+    openapi_url="/openapi.json" if settings.enable_docs else None,
     lifespan=lifespan,
 )
 
