@@ -32,11 +32,28 @@ def _bool_env(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+REASONING_EFFORT_VALUES = {"none", "minimal", "low", "medium", "high", "xhigh"}
+
+
+def _reasoning_effort_env(name: str, default: str | None) -> str | None:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value == "":
+        return None
+    if value not in REASONING_EFFORT_VALUES:
+        allowed = ", ".join(sorted(REASONING_EFFORT_VALUES))
+        raise ValueError(f"{name} must be one of: {allowed}")
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     api_key: str
     require_api_key: bool
     enable_docs: bool
+    default_reasoning_effort: str | None
     db_path: Path
     queue_concurrency: int
     max_queue_size: int
@@ -61,6 +78,9 @@ def get_settings() -> Settings:
         api_key=os.getenv("DOGOK_PROXY_API_KEY", ""),
         require_api_key=_bool_env("DOGOK_PROXY_REQUIRE_API_KEY", True),
         enable_docs=_bool_env("DOGOK_PROXY_ENABLE_DOCS", False),
+        default_reasoning_effort=_reasoning_effort_env(
+            "GPT_DEFAULT_REASONING_EFFORT", "low"
+        ),
         db_path=Path(os.getenv("GPT_QUEUE_DB_PATH", "/app/data/jobs.sqlite3")),
         queue_concurrency=max(1, _int_env("GPT_QUEUE_CONCURRENCY", 2)),
         max_queue_size=max(1, _int_env("GPT_MAX_QUEUE_SIZE", 1000)),

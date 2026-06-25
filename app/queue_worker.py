@@ -109,8 +109,20 @@ class QueueWorkerPool:
             chat_response = await self.upstream.create_chat_completion(chat_payload)
             return _chat_completion_to_response(job, payload, chat_response)
         if job.endpoint == "chat.completions":
-            return await self.upstream.create_chat_completion(payload)
+            return await self.upstream.create_chat_completion(
+                _chat_completion_payload(payload)
+            )
         raise RuntimeError(f"unsupported endpoint: {job.endpoint}")
+
+
+def _chat_completion_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    chat_payload = dict(payload)
+    if "reasoning_effort" not in chat_payload:
+        reasoning_effort = _reasoning_effort_from_reasoning(chat_payload.get("reasoning"))
+        if reasoning_effort:
+            chat_payload["reasoning_effort"] = reasoning_effort
+    chat_payload.pop("reasoning", None)
+    return chat_payload
 
 
 def _responses_to_chat_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -124,13 +136,25 @@ def _responses_to_chat_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "max_tokens",
         "n",
         "presence_penalty",
+        "reasoning_effort",
         "stop",
         "temperature",
         "top_p",
     ):
         if key in payload:
             chat_payload[key] = payload[key]
+    if "reasoning_effort" not in chat_payload:
+        reasoning_effort = _reasoning_effort_from_reasoning(payload.get("reasoning"))
+        if reasoning_effort:
+            chat_payload["reasoning_effort"] = reasoning_effort
     return chat_payload
+
+
+def _reasoning_effort_from_reasoning(reasoning: Any) -> str | None:
+    if not isinstance(reasoning, dict):
+        return None
+    effort = reasoning.get("effort")
+    return effort if isinstance(effort, str) and effort else None
 
 
 def _responses_payload_to_messages(payload: dict[str, Any]) -> list[dict[str, str]]:

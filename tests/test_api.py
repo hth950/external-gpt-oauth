@@ -85,6 +85,7 @@ async def test_response_enqueue_and_poll(test_app):
         assert test_app.state.captured_payloads[-1]["messages"] == [
             {"role": "user", "content": "hello"}
         ]
+        assert test_app.state.captured_payloads[-1]["reasoning_effort"] == "low"
 
 
 @pytest.mark.asyncio
@@ -115,6 +116,89 @@ async def test_response_supports_system_usr_payload(test_app):
         {"role": "system", "content": "You are concise."},
         {"role": "user", "content": "Say hello."},
     ]
+    assert test_app.state.captured_payloads[-1]["reasoning_effort"] == "low"
+
+
+@pytest.mark.asyncio
+async def test_response_allows_reasoning_effort_override(test_app):
+    transport = ASGITransport(app=test_app)
+    headers = {"Authorization": "Bearer test-key"}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post(
+            "/v1/responses",
+            json={
+                "model": "gpt-5.4",
+                "input": "hello",
+                "reasoning_effort": "medium",
+            },
+            headers=headers,
+        )
+        assert created.status_code == 202
+        response_id = created.json()["id"]
+
+        for _ in range(20):
+            polled = await client.get(f"/v1/responses/{response_id}", headers=headers)
+            assert polled.status_code == 200
+            if polled.json()["status"] == "completed":
+                break
+            await asyncio.sleep(0.05)
+
+    assert test_app.state.captured_payloads[-1]["reasoning_effort"] == "medium"
+
+
+@pytest.mark.asyncio
+async def test_response_supports_reasoning_object_effort(test_app):
+    transport = ASGITransport(app=test_app)
+    headers = {"Authorization": "Bearer test-key"}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post(
+            "/v1/responses",
+            json={
+                "model": "gpt-5.4",
+                "input": "hello",
+                "reasoning": {"effort": "high"},
+            },
+            headers=headers,
+        )
+        assert created.status_code == 202
+        response_id = created.json()["id"]
+
+        for _ in range(20):
+            polled = await client.get(f"/v1/responses/{response_id}", headers=headers)
+            assert polled.status_code == 200
+            if polled.json()["status"] == "completed":
+                break
+            await asyncio.sleep(0.05)
+
+    assert test_app.state.captured_payloads[-1]["reasoning_effort"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_chat_completion_supports_reasoning_object_effort(test_app):
+    transport = ASGITransport(app=test_app)
+    headers = {"Authorization": "Bearer test-key"}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "gpt-5.4",
+                "messages": [{"role": "user", "content": "hello"}],
+                "reasoning": {"effort": "xhigh"},
+            },
+            headers=headers,
+        )
+        assert created.status_code == 202
+        job_id = created.json()["id"]
+
+        for _ in range(20):
+            polled = await client.get(f"/v1/jobs/{job_id}", headers=headers)
+            assert polled.status_code == 200
+            if polled.json()["status"] == "completed":
+                break
+            await asyncio.sleep(0.05)
+
+    assert test_app.state.captured_payloads[-1]["reasoning_effort"] == "xhigh"
+    assert "reasoning" not in test_app.state.captured_payloads[-1]
 
 
 @pytest.mark.asyncio

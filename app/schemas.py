@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh"]
+
 
 class ResponseCreateRequest(BaseModel):
     """Queued Responses request.
@@ -42,6 +44,14 @@ class ResponseCreateRequest(BaseModel):
         default=None,
         description="OpenAI Responses-style input. If present, it takes precedence over system/usr aliases.",
     )
+    reasoning_effort: ReasoningEffort | None = Field(
+        default=None,
+        description="Reasoning effort override. Defaults to the server setting, currently low.",
+    )
+    reasoning: dict[str, Any] | None = Field(
+        default=None,
+        description="Responses-style reasoning object. `reasoning.effort` is also supported.",
+    )
     stream: bool | None = Field(
         default=False, description="Must be false. Streaming is not supported."
     )
@@ -55,6 +65,14 @@ class ChatCompletionCreateRequest(BaseModel):
     model: str = Field(default="gpt-5.4-mini", description="Model name to request.")
     messages: list[dict[str, Any]] = Field(
         default_factory=list, description="OpenAI Chat Completions messages."
+    )
+    reasoning_effort: ReasoningEffort | None = Field(
+        default=None,
+        description="Reasoning effort override. Defaults to the server setting, currently low.",
+    )
+    reasoning: dict[str, Any] | None = Field(
+        default=None,
+        description="Alias object. If provided, `reasoning.effort` is converted to `reasoning_effort`.",
     )
     stream: bool | None = Field(
         default=False, description="Must be false. Streaming is not supported."
@@ -80,4 +98,3 @@ class CompletedResponse(BaseModel):
     output_text: str | None = None
     output: list[dict[str, Any]] | None = None
     metadata: dict[str, Any] | None = None
-
