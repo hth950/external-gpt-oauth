@@ -1,51 +1,144 @@
 # external-gpt-oauth
 
-FastAPI queue proxy for dogok. It accepts OpenAI-compatible requests on a
-localhost-only port, stores them as durable SQLite jobs, and executes them
-through a local `openai-oauth` proxy backed by a Codex/ChatGPT OAuth login.
+dogok 서버에서 ChatGPT/Codex OAuth 계정으로 GPT 요청을 처리하는 FastAPI 기반 내부 프록시입니다.
 
-## Dogok Setup
+클라이언트는 dogok의 LAN 주소로 OpenAI 호환 요청을 보내고, 이 서버는 요청을 SQLite queue에 저장한 뒤 내부 `openai-oauth` 프록시를 통해 처리합니다. 긴 GPT 응답 때문에 HTTP 연결을 오래 붙잡지 않도록 `/v1/responses` 요청은 즉시 job id를 반환하고, 클라이언트가 poll로 결과를 조회하는 구조입니다.
 
-```bash
-cd /workspace/thhwang/external-gpt-oauth
-cp .env.example .env
-# edit DOGOK_PROXY_API_KEY before starting
+## Current Endpoint
 
-mkdir -p .codex-auth data logs
-CODEX_HOME=/workspace/thhwang/external-gpt-oauth/.codex-auth npx @openai/codex login
+현재 dogok 배포 기준:
 
-sudo -n docker compose up -d --build
-curl -H "Authorization: Bearer $DOGOK_PROXY_API_KEY" http://127.0.0.1:31835/health
+```text
+Base URL: http://192.168.0.16:31835/v1
+API Key: classday-api
 ```
 
-The service is exposed only on dogok loopback:
+헬스체크:
 
 ```bash
-ssh -N -L 31835:127.0.0.1:31835 dogok
+curl http://192.168.0.16:31835/health \
+  -H "Authorization: Bearer classday-api"
 ```
 
-Then set clients to:
+## Quick Usage
+
+### Responses API
+
+요청 생성:
+
+```bash
+CREATE=$(curl -sS http://192.168.0.16:31835/v1/responses \
+  -H "Authorization: Bearer classday-api" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-5.4-mini","input":"Reply with exactly: hello"}')
+
+echo "$CREATE"
+```
+
+결과 poll:
+
+```bash
+RID=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<< "$CREATE")
+
+curl -sS "http://192.168.0.16:31835/v1/responses/${RID}" \
+  -H "Authorization: Bearer classday-api" | python3 -m json.tool
+```
+
+상태값은 `queued`, `in_progress`, `completed`, `failed`, `cancelled` 중 하나입니다. 완료 시 `output_text`와 Responses 형태의 `output`이 반환됩니다.
+
+### Python Client
 
 ```python
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="http://127.0.0.1:31835/v1",
-    api_key="DOGOK_PROXY_API_KEY value",
+    base_url="http://192.168.0.16:31835/v1",
+    api_key="classday-api",
 )
+
+created = client.responses.create(
+    model="gpt-5.4-mini",
+    input="Reply with exactly: hello",
+)
+
+print(created.id)
 ```
 
-## Async Responses Flow
+현재 서버는 비동기 queue 방식이므로, Python SDK가 자동으로 완료 결과를 기다리는 일반 OpenAI Responses 동작과는 다릅니다. `created.id`로 `GET /v1/responses/{id}`를 직접 poll해야 합니다.
+
+### Chat Completions
+
+`/v1/chat/completions`도 queue에 들어갑니다. 생성 응답은 완료 결과가 아니라 job 객체이며, 결과는 `/v1/jobs/{job_id}`로 조회합니다.
 
 ```bash
-curl -s http://127.0.0.1:31835/v1/responses \
-  -H "Authorization: Bearer $DOGOK_PROXY_API_KEY" \
+CREATE=$(curl -sS http://192.168.0.16:31835/v1/chat/completions \
+  -H "Authorization: Bearer classday-api" \
   -H "Content-Type: application/json" \
-  -d '{"model":"gpt-5.4","input":"hello"}'
+  -d '{"model":"gpt-5.4-mini","messages":[{"role":"user","content":"hello"}]}')
 
-curl -s http://127.0.0.1:31835/v1/responses/<response_id> \
-  -H "Authorization: Bearer $DOGOK_PROXY_API_KEY"
+JOB_ID=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<< "$CREATE")
+
+curl -sS "http://192.168.0.16:31835/v1/jobs/${JOB_ID}" \
+  -H "Authorization: Bearer classday-api" | python3 -m json.tool
 ```
 
-Statuses are `queued`, `in_progress`, `completed`, `failed`, or `cancelled`.
+## Deployment
+
+dogok에서:
+
+```bash
+cd /workspace/thhwang/external-gpt-oauth
+sudo -n docker compose up -d --build
+sudo -n docker compose ps
+```
+
+현재 Compose는 dogok LAN IP에만 바인딩합니다.
+
+```yaml
+ports:
+  - "192.168.0.16:31835:8000"
+```
+
+같은 공유기/LAN 내부 기기에서 `http://192.168.0.16:31835`로 접근할 수 있습니다. 외부 공개 서비스로 쓰는 구성은 아닙니다.
+
+## OAuth Login
+
+ChatGPT/Codex OAuth 계정 연결은 dogok에서 수행합니다.
+
+```bash
+cd /workspace/thhwang/external-gpt-oauth
+CODEX_HOME=/workspace/thhwang/external-gpt-oauth/.codex-auth npx @openai/codex login
+sudo -n docker compose restart
+```
+
+로그인 후 `/health`에서 아래 값이 모두 `true`여야 합니다.
+
+```json
+{
+  "oauth_proxy": {
+    "healthy": true,
+    "auth_file_exists": true
+  }
+}
+```
+
+서버는 auth file을 감시하며, access token 만료 7일 전부터 refresh token으로 자동 갱신합니다. 갱신 후에는 내부 `openai-oauth` 프록시를 재시작합니다.
+
+## Project Layout
+
+```text
+app/
+  main.py          # FastAPI routes and lifespan
+  db.py            # SQLite queue storage
+  queue_worker.py  # background workers
+  oauth_proxy.py   # openai-oauth subprocess manager
+  auth_refresh.py  # OAuth token refresh loop
+  upstream.py      # local openai-oauth HTTP client
+docs/
+  OPERATIONS.md    # deployment, testing, troubleshooting
+```
+
+## More Docs
+
+- [Operations](docs/OPERATIONS.md)
 
