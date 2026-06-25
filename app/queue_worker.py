@@ -127,7 +127,6 @@ def _responses_to_chat_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "stop",
         "temperature",
         "top_p",
-        "user",
     ):
         if key in payload:
             chat_payload[key] = payload[key]

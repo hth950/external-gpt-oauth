@@ -6,14 +6,21 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi import Body, Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.auth_refresh import AuthRefreshLoop
 from app.config import Settings, get_settings
 from app.db import JobRecord, JobStore, QueueFullError
 from app.oauth_proxy import OAuthProxyManager
 from app.queue_worker import QueueWorkerPool
+from app.schemas import (
+    ChatCompletionCreateRequest,
+    CompletedResponse,
+    QueuedResponse,
+    ResponseCreateRequest,
+)
 from app.upstream import UpstreamClient
 
 logging.basicConfig(level=logging.INFO)
@@ -28,6 +35,7 @@ upstream = UpstreamClient(
 oauth_proxy = OAuthProxyManager(settings)
 worker_pool = QueueWorkerPool(store=store, upstream=upstream, settings=settings)
 auth_refresh_loop = AuthRefreshLoop(settings, oauth_proxy.restart)
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 @asynccontextmanager
@@ -52,14 +60,33 @@ async def lifespan(_: FastAPI):
         await oauth_proxy.stop()
 
 
-app = FastAPI(title="dogok external GPT OAuth proxy", lifespan=lifespan)
+app = FastAPI(
+    title="dogok external GPT OAuth proxy",
+    description=(
+        "LAN-only queued GPT proxy backed by ChatGPT/Codex OAuth. "
+        "Use `Authorization: Bearer classday-api` in the Swagger Authorize dialog."
+    ),
+    version="0.2.0",
+    lifespan=lifespan,
+)
 
 
-async def require_auth(authorization: str | None = Header(default=None)) -> None:
+async def require_auth(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> None:
     if not settings.require_api_key:
         return
-    expected = f"Bearer {settings.api_key}"
-    if authorization != expected:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error": {
+                    "type": "authentication_error",
+                    "message": "missing or invalid bearer token",
+                }
+            },
+        )
+    if credentials.credentials != settings.api_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
@@ -94,17 +121,53 @@ async def health() -> dict[str, Any]:
     }
 
 
-@app.get("/v1/models", dependencies=[Depends(require_auth)])
+@app.get("/v1/models", dependencies=[Depends(require_auth)], tags=["models"])
 async def models() -> dict[str, Any]:
     if not await oauth_proxy.is_healthy():
         await oauth_proxy.start()
     return await upstream.get_models()
 
 
-@app.post("/v1/responses", dependencies=[Depends(require_auth)])
-async def create_response(request: Request) -> JSONResponse:
+@app.post(
+    "/v1/responses",
+    dependencies=[Depends(require_auth)],
+    tags=["responses"],
+    summary="Create a queued response job",
+    description=(
+        "Stores the request in SQLite and immediately returns a response id. "
+        "Poll `GET /v1/responses/{response_id}` until status is `completed`."
+    ),
+    response_model=QueuedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def create_response(
+    request: Request,
+    body: ResponseCreateRequest = Body(
+        ...,
+        openapi_examples={
+            "system_usr": {
+                "summary": "Simplified system/usr payload",
+                "value": {
+                    "model": "gpt-5.4-mini",
+                    "system": "You are a concise assistant.",
+                    "usr": "Reply with exactly: hello",
+                },
+            },
+            "responses_input": {
+                "summary": "OpenAI-style Responses input",
+                "value": {
+                    "model": "gpt-5.4-mini",
+                    "input": [
+                        {"role": "system", "content": "You are concise."},
+                        {"role": "user", "content": "Reply with exactly: hello"},
+                    ],
+                },
+            },
+        },
+    ),
+) -> JSONResponse:
     await _require_oauth_ready()
-    payload = await _json_payload(request)
+    payload = _model_payload(body)
     if payload.get("stream") is True:
         raise _bad_request("stream=true is not supported by this queued proxy")
     job = _enqueue(
@@ -115,7 +178,13 @@ async def create_response(request: Request) -> JSONResponse:
     return JSONResponse(_pending_response(job), status_code=status.HTTP_202_ACCEPTED)
 
 
-@app.get("/v1/responses/{response_id}", dependencies=[Depends(require_auth)])
+@app.get(
+    "/v1/responses/{response_id}",
+    dependencies=[Depends(require_auth)],
+    tags=["responses"],
+    summary="Retrieve a queued response result",
+    response_model=CompletedResponse | QueuedResponse,
+)
 async def retrieve_response(response_id: str) -> dict[str, Any]:
     job = _get_job_or_404(response_id)
     if job.endpoint != "responses":
@@ -123,7 +192,13 @@ async def retrieve_response(response_id: str) -> dict[str, Any]:
     return _job_response(job)
 
 
-@app.post("/v1/responses/{response_id}/cancel", dependencies=[Depends(require_auth)])
+@app.post(
+    "/v1/responses/{response_id}/cancel",
+    dependencies=[Depends(require_auth)],
+    tags=["responses"],
+    summary="Cancel a queued or running response job",
+    response_model=CompletedResponse | QueuedResponse,
+)
 async def cancel_response(response_id: str) -> dict[str, Any]:
     job = store.request_cancel(response_id)
     if job is None or job.endpoint != "responses":
@@ -131,10 +206,35 @@ async def cancel_response(response_id: str) -> dict[str, Any]:
     return _job_response(job)
 
 
-@app.post("/v1/chat/completions", dependencies=[Depends(require_auth)])
-async def create_chat_completion(request: Request) -> JSONResponse:
+@app.post(
+    "/v1/chat/completions",
+    dependencies=[Depends(require_auth)],
+    tags=["chat"],
+    summary="Create a queued chat completion job",
+    description=(
+        "Stores a Chat Completions request in SQLite and returns a job id. "
+        "Poll `GET /v1/jobs/{job_id}` for the final result."
+    ),
+    response_model=QueuedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def create_chat_completion(
+    request: Request,
+    body: ChatCompletionCreateRequest = Body(
+        ...,
+        openapi_examples={
+            "basic_chat": {
+                "summary": "Basic chat completion payload",
+                "value": {
+                    "model": "gpt-5.4-mini",
+                    "messages": [{"role": "user", "content": "hello"}],
+                },
+            }
+        },
+    ),
+) -> JSONResponse:
     await _require_oauth_ready()
-    payload = await _json_payload(request)
+    payload = _model_payload(body)
     if payload.get("stream") is True:
         raise _bad_request("stream=true is not supported by this queued proxy")
     job = _enqueue(
@@ -145,12 +245,24 @@ async def create_chat_completion(request: Request) -> JSONResponse:
     return JSONResponse(_pending_job(job), status_code=status.HTTP_202_ACCEPTED)
 
 
-@app.get("/v1/jobs/{job_id}", dependencies=[Depends(require_auth)])
+@app.get(
+    "/v1/jobs/{job_id}",
+    dependencies=[Depends(require_auth)],
+    tags=["jobs"],
+    summary="Retrieve a queued job result",
+    response_model=CompletedResponse | QueuedResponse,
+)
 async def retrieve_job(job_id: str) -> dict[str, Any]:
     return _job_response(_get_job_or_404(job_id))
 
 
-@app.post("/v1/jobs/{job_id}/cancel", dependencies=[Depends(require_auth)])
+@app.post(
+    "/v1/jobs/{job_id}/cancel",
+    dependencies=[Depends(require_auth)],
+    tags=["jobs"],
+    summary="Cancel a queued or running job",
+    response_model=CompletedResponse | QueuedResponse,
+)
 async def cancel_job(job_id: str) -> dict[str, Any]:
     job = store.request_cancel(job_id)
     if job is None:
@@ -198,14 +310,8 @@ async def _require_oauth_ready() -> None:
         )
 
 
-async def _json_payload(request: Request) -> dict[str, Any]:
-    try:
-        data = await request.json()
-    except Exception as exc:
-        raise _bad_request("request body must be valid JSON") from exc
-    if not isinstance(data, dict):
-        raise _bad_request("request body must be a JSON object")
-    return data
+def _model_payload(body: ResponseCreateRequest | ChatCompletionCreateRequest) -> dict[str, Any]:
+    return body.model_dump(mode="json", exclude_none=True)
 
 
 def _get_job_or_404(job_id: str) -> JobRecord:

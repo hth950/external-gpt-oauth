@@ -67,6 +67,31 @@ ss -ltnp | grep 31835
 LISTEN ... 192.168.0.16:31835 ...
 ```
 
+## Swagger UI
+
+Swagger UI:
+
+```text
+http://192.168.0.16:31835/docs
+```
+
+사용 방법:
+
+1. 우측 상단 `Authorize`를 누릅니다.
+2. token 값으로 `classday-api`를 입력합니다.
+3. `/v1/responses`를 열고 `Try it out`을 누릅니다.
+4. `system_usr` 예시를 선택하거나 아래 형태로 body를 넣습니다.
+
+```json
+{
+  "model": "gpt-5.4-mini",
+  "system": "You are a concise assistant.",
+  "usr": "Reply with exactly: hello"
+}
+```
+
+요청 생성 응답의 `id`를 복사한 뒤 `/v1/responses/{response_id}`에서 poll합니다.
+
 ## End-to-End Test
 
 로컬 또는 같은 LAN의 클라이언트에서:
