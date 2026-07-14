@@ -32,7 +32,15 @@ def _bool_env(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-REASONING_EFFORT_VALUES = {"none", "minimal", "low", "medium", "high", "xhigh"}
+REASONING_EFFORT_VALUES = {
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+}
 
 
 def _reasoning_effort_env(name: str, default: str | None) -> str | None:

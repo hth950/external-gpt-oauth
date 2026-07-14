@@ -51,6 +51,21 @@ async def test_app(tmp_path, monkeypatch):
         }
 
     main.upstream.create_chat_completion = fake_create_chat_completion
+
+    async def fake_get_models():
+        return {
+            "object": "list",
+            "data": [
+                {
+                    "id": "gpt-5.5",
+                    "object": "model",
+                    "created": 0,
+                    "owned_by": "openai",
+                }
+            ],
+        }
+
+    main.upstream.get_models = fake_get_models
     main.app.state.captured_payloads = captured_payloads
 
     async with main.app.router.lifespan_context(main.app):
@@ -199,6 +214,46 @@ async def test_chat_completion_supports_reasoning_object_effort(test_app):
 
     assert test_app.state.captured_payloads[-1]["reasoning_effort"] == "xhigh"
     assert "reasoning" not in test_app.state.captured_payloads[-1]
+
+
+@pytest.mark.asyncio
+async def test_models_include_gpt_56_variants(test_app):
+    transport = ASGITransport(app=test_app)
+    headers = {"Authorization": "Bearer test-key"}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/v1/models", headers=headers)
+
+    assert response.status_code == 200
+    model_ids = {model["id"] for model in response.json()["data"]}
+    assert {"gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"} <= model_ids
+
+
+@pytest.mark.asyncio
+async def test_response_allows_max_reasoning_effort(test_app):
+    transport = ASGITransport(app=test_app)
+    headers = {"Authorization": "Bearer test-key"}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post(
+            "/v1/responses",
+            json={
+                "model": "gpt-5.6-sol",
+                "input": "hello",
+                "reasoning_effort": "max",
+            },
+            headers=headers,
+        )
+        assert created.status_code == 202
+        response_id = created.json()["id"]
+
+        for _ in range(20):
+            polled = await client.get(f"/v1/responses/{response_id}", headers=headers)
+            assert polled.status_code == 200
+            if polled.json()["status"] == "completed":
+                break
+            await asyncio.sleep(0.05)
+
+    assert test_app.state.captured_payloads[-1]["model"] == "gpt-5.6-sol"
+    assert test_app.state.captured_payloads[-1]["reasoning_effort"] == "max"
 
 
 @pytest.mark.asyncio
