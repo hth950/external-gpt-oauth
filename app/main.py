@@ -26,6 +26,8 @@ from app.upstream import UpstreamClient
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+SUPPORTED_MODEL_IDS = ("gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol")
+
 settings = get_settings()
 store = JobStore(settings.db_path)
 upstream = UpstreamClient(
@@ -129,7 +131,7 @@ async def health() -> dict[str, Any]:
 async def models() -> dict[str, Any]:
     if not await oauth_proxy.is_healthy():
         await oauth_proxy.start()
-    return await upstream.get_models()
+    return _add_supported_models(await upstream.get_models())
 
 
 @app.post(
@@ -329,6 +331,35 @@ def _model_payload(body: ResponseCreateRequest | ChatCompletionCreateRequest) ->
             reasoning_effort, "reasoning_effort"
         )
     return payload
+
+
+def _add_supported_models(payload: dict[str, Any]) -> dict[str, Any]:
+    """Expose models supported by this API even if the OAuth proxy lags behind."""
+    models = payload.get("data")
+    if not isinstance(models, list):
+        return payload
+
+    known_ids = {
+        model.get("id")
+        for model in models
+        if isinstance(model, dict) and isinstance(model.get("id"), str)
+    }
+    missing_models = [
+        {
+            "id": model_id,
+            "object": "model",
+            "created": 0,
+            "owned_by": "openai",
+        }
+        for model_id in SUPPORTED_MODEL_IDS
+        if model_id not in known_ids
+    ]
+    if not missing_models:
+        return payload
+
+    result = dict(payload)
+    result["data"] = [*models, *missing_models]
+    return result
 
 
 def _reasoning_effort_from_reasoning(reasoning: Any) -> str | None:

@@ -254,7 +254,7 @@ Responses 스타일도 지원합니다.
 }
 ```
 
-지원 가능한 값은 모델별로 다를 수 있지만, 서버 schema는 `none`, `minimal`, `low`, `medium`, `high`, `xhigh`를 허용합니다.
+지원 가능한 값은 모델별로 다를 수 있지만, 서버 schema는 `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`를 허용합니다. GPT-5.6 모델 ID는 `gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-5.6-sol`입니다.
 
 ## OAuth Refresh
 

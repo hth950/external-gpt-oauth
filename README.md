@@ -83,7 +83,9 @@ reasoning effort: reasoning_effort 또는 reasoning.effort
 기본 reasoning effort: low
 ```
 
-`reasoning_effort`는 요청마다 `none`, `minimal`, `low`, `medium`, `high`, `xhigh` 중 하나로 바꿀 수 있습니다. 모델별 지원 값은 다를 수 있으므로, 특정 값이 upstream에서 거절되면 해당 모델이 지원하는 값으로 낮춰서 다시 요청하면 됩니다.
+`reasoning_effort`는 요청마다 `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` 중 하나로 바꿀 수 있습니다. GPT-5.6 모델은 `max`까지 사용할 수 있습니다. 모델별 지원 값은 다를 수 있으므로, 특정 값이 upstream에서 거절되면 해당 모델이 지원하는 값으로 낮춰서 다시 요청하면 됩니다.
+
+현재 API에서 사용할 수 있는 GPT-5.6 모델 ID는 `gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-5.6-sol`입니다.
 
 요청 생성:
 
